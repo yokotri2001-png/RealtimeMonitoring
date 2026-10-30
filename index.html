@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Realtime Monitoring PHBTR — LWI012</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Chart.js + Hammer.js + chartjs-plugin-zoom -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hammerjs@2.0.8/hammer.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.0.1/dist/chartjs-plugin-zoom.min.js"></script>
+  <!-- SheetJS (Export Excel .xlsx / .csv) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <!-- Firebase SDK (App & Realtime Database) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- TOP NAVBAR -->
+  <header class="navbar">
+    <div class="navbar-brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <h1>Realtime Monitoring PHBTR <span class="badge-gardu" id="garduCodeBadge">LWI012</span></h1>
+      </div>
+    </div>
+
+    <!-- NAVIGASI 2 HALAMAN -->
+    <nav class="page-tabs" aria-label="Navigasi Halaman">
+      <button class="page-tab active" data-page="monitoring" id="tabMonitoringBtn">
+        📊 Data Pengukuran
+      </button>
+      <button class="page-tab" data-page="technical" id="tabTechnicalBtn">
+        🛠️ Data Teknik &amp; Pemeliharaan
+      </button>
+    </nav>
+
+    <div class="navbar-right">
+      <div class="status-pill" id="connectionStatusPill">
+        <span class="status-dot cloud" id="statusDot"></span>
+        <span id="connectionStatusText">Menghubungkan...</span>
+      </div>
+      <button class="btn btn-icon" id="btnManualRefresh" title=" Segarkan Data">
+        🔄 Refresh
+      </button>
+    </div>
+  </header>
+
+  <!-- =====================================================================
+       HALAMAN 1: DATA PENGUKURAN (REALTIME, GRAFIK BEBAN PHBTR, HISTORICAL)
+       ===================================================================== -->
+  <main class="container" id="pageMonitoring">
+    <!-- BAGIAN REALTIME (TANPA NOMOR / JUDUL BERNOMOR, LANGSUNG DATA & WAKTU PENGUKURAN) -->
+    <section class="section-block realtime-section">
+      <div class="realtime-time-bar">
+        <span class="live-indicator">
+          <span class="live-pulse"></span> Pembacaan Realtime
+        </span>
+        <span class="timestamp-pill" id="latestTimestampBadge">-</span>
+      </div>
+
+      <!-- BARIS ATAS: P TOTAL (% TRAFO 50 kVA), UNBALANCE ARUS, E TOTAL & FREKUENSI -->
+      <div class="top-metrics-grid">
+        <!-- P TOTAL & PERSENTASE BEBAN TRAFO -->
+        <div class="highlight-card card-trafo">
+          <div class="card-top">
+            <div>
+              <span class="card-label">Daya Aktif Total (P<sub>total</sub>)</span>
+              <div class="big-value" id="valPTotal">0,0 <small>W</small></div>
+              <div class="sub-value" id="valPTotalKw">0,000 kW</div>
+            </div>
+            <div class="percentage-circle" id="trafoPercentBadge">0,0%</div>
+          </div>
+          <div class="progress-wrapper">
+            <div class="progress-labels">
+              <span>Beban Terhadap Kapasitas Trafo</span>
+              <span id="trafoCapLabel">Maks: 42,5 kW (50 kVA)</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill" id="trafoProgressBar" style="width: 0%;"></div>
+            </div>
+            <div class="status-note" id="trafoStatusNote">Status Beban: Normal</div>
+          </div>
+        </div>
+
+        <!-- ARUS RATA-RATA & PERSENTASE UNBALANCE ARUS -->
+        <div class="highlight-card card-unbalance">
+          <div class="card-top">
+            <div>
+              <span class="card-label">Ketidakseimbangan Arus (Current Unbalance)</span>
+              <div class="big-value" id="valCurrentUnbalance">0,00 <small>%</small></div>
+              <div class="sub-value" id="valCurrentAvg">Rata-rata Arus (I<sub>avg</sub>): 0,00 A</div>
+            </div>
+            <div class="unbalance-badge" id="unbalanceStatusBadge">Seimbang</div>
+          </div>
+          <div class="progress-wrapper">
+            <div class="progress-labels">
+              <span>Deviasi Maksimum terhadap I<sub>avg</sub></span>
+              <span id="maxDeviationLabel">Selisih Maks: 0,00 A</span>
+            </div>
+            <div class="progress-bar-bg">
+              <div class="progress-bar-fill fill-cyan" id="unbalanceProgressBar" style="width: 0%;"></div>
+            </div>
+            <div class="status-note" id="unbalanceDetailNote">Batas aman standar NEMA/IEEE: &lt; 10%</div>
+          </div>
+        </div>
+
+        <!-- E TOTAL & FREKUENSI -->
+        <div class="dual-summary-stack">
+          <div class="mini-summary-card energy-card">
+            <div class="mini-header">
+              <span>Energi Aktif Total (E<sub>total</sub>)</span>
+              <span class="unit-tag">kWh</span>
+            </div>
+            <div class="mini-value" id="valETotal">0,0 <small>kWh</small></div>
+            <div class="mini-sub" id="subEnergyExtra">Q<sub>tot</sub>: 0 kVARh | S<sub>tot</sub>: 0 kVAh</div>
+          </div>
+
+          <div class="mini-summary-card freq-card">
+            <div class="mini-header">
+              <span>Frekuensi Sistem</span>
+              <span class="unit-tag">Hz</span>
+            </div>
+            <div class="mini-value" id="valFrekuensi">50,00 <small>Hz</small></div>
+            <div class="mini-sub" id="subFreqStatus">Frekuensi Jaringan Normal</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- BARIS BAWAH: TEGANGAN (V r-n, V s-n, V t-n) & ARUS (I r, I s, I t) -->
+      <div class="vi-grid">
+        <!-- KELOMPOK TEGANGAN 3-FASA -->
+        <div class="vi-group-card">
+          <div class="vi-group-header">
+            <h3>Tegangan Fasa-Netral (V<sub>r-n</sub>, V<sub>s-n</sub>, V<sub>t-n</sub>)</h3>
+            <span class="unit-tag">Volt (V)</span>
+          </div>
+          <div class="vi-phases-row">
+            <div class="vi-box phase-r-box">
+              <span class="vi-phase-tag tag-r">Fasa R (V r-n)</span>
+              <div class="vi-number" id="valVR">0,0 <small>V</small></div>
+            </div>
+            <div class="vi-box phase-s-box">
+              <span class="vi-phase-tag tag-s">Fasa S (V s-n)</span>
+              <div class="vi-number" id="valVS">0,0 <small>V</small></div>
+            </div>
+            <div class="vi-box phase-t-box">
+              <span class="vi-phase-tag tag-t">Fasa T (V t-n)</span>
+              <div class="vi-number" id="valVT">0,0 <small>V</small></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- KELOMPOK ARUS 3-FASA -->
+        <div class="vi-group-card">
+          <div class="vi-group-header">
+            <h3>Arus Tiap Fasa (I<sub>r</sub>, I<sub>s</sub>, I<sub>t</sub>)</h3>
+            <span class="unit-tag">Ampere (A)</span>
+          </div>
+          <div class="vi-phases-row">
+            <div class="vi-box phase-r-box">
+              <span class="vi-phase-tag tag-r">Fasa R (I r)</span>
+              <div class="vi-number" id="valIR">0,00 <small>A</small></div>
+              <small class="vi-dev" id="devIR">Deviasi: 0,0%</small>
+            </div>
+            <div class="vi-box phase-s-box">
+              <span class="vi-phase-tag tag-s">Fasa S (I s)</span>
+              <div class="vi-number" id="valIS">0,00 <small>A</small></div>
+              <small class="vi-dev" id="devIS">Deviasi: 0,0%</small>
+            </div>
+            <div class="vi-box phase-t-box">
+              <span class="vi-phase-tag tag-t">Fasa T (I t)</span>
+              <div class="vi-number" id="valIT">0,00 <small>A</small></div>
+              <small class="vi-dev" id="devIT">Deviasi: 0,0%</small>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================
+         BAGIAN GRAFIK: BEBAN PHBTR
+         =================================================================== -->
+    <section class="section-block chart-stock-section">
+      <div class="stock-header">
+        <h2>Beban PHBTR</h2>
+
+        <div class="chart-toolbar">
+          <div class="date-range-inputs">
+            <label>Dari <input type="date" id="chartStartDate" class="text-input input-date-picker" /></label>
+            <label>Sampai <input type="date" id="chartEndDate" class="text-input input-date-picker" /></label>
+            <button class="btn btn-sm btn-secondary" id="btnResetChartFilter">Reset Filter</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CANVAS GRAFIK + SLIDER GESER LANGSUNG DI BAWAH TANGGAL (MENYATU DENGAN GRAFIK) -->
+      <div class="stock-chart-container">
+        <div class="chart-canvas-area">
+          <canvas id="pTotalStockChart"></canvas>
+        </div>
+        <div class="chart-integrated-slider-wrap">
+          <input type="range" id="chartPanSlider" class="chart-integrated-slider" min="0" max="100" value="100" aria-label="Geser rentang waktu grafik" />
+        </div>
+      </div>
+
+      <!-- KONTROL BAWAH GRAFIK: ZOOM IN / OUT / RESET -->
+      <div class="chart-bottom-controls">
+        <div class="zoom-controls">
+          <button class="btn btn-sm btn-secondary" id="btnZoomIn" title="Perbesar Grafik">🔍+ Zoom In</button>
+          <button class="btn btn-sm btn-secondary" id="btnZoomOut" title="Perkecil Grafik">🔍- Zoom Out</button>
+          <button class="btn btn-sm btn-secondary" id="btnResetZoom" title="Reset Zoom Grafik">↺ Reset Zoom</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===================================================================
+         BAGIAN HISTORICAL: 100 BARIS PER HALAMAN + FREEZE KOLOM TIMESTAMP
+         =================================================================== -->
+    <section class="section-block table-section">
+      <div class="table-header-bar">
+        <div class="table-title-group">
+          <h2>Historical</h2>
+        </div>
+
+        <!-- PANEL EXPORT EXCEL DENGAN RENTANG TANGGAL -->
+        <div class="history-export-bar">
+          <label>Dari <input type="date" id="exportStartDate" class="text-input input-date-picker" /></label>
+          <label>Sampai <input type="date" id="exportEndDate" class="text-input input-date-picker" /></label>
+          <button class="btn btn-sm btn-success" id="btnExportExcelRange">
+            📊 Export Excel (.xlsx)
+          </button>
+        </div>
+      </div>
+
+      <div class="table-responsive">
+        <table class="data-table freeze-first-col" id="historyTable">
+          <thead>
+            <tr>
+              <th class="sticky-col">Timestamp</th>
+              <th>Frekuensi (Hz)</th>
+              <th class="col-r">V r-n (V)</th>
+              <th class="col-s">V s-n (V)</th>
+              <th class="col-t">V t-n (V)</th>
+              <th class="col-r">I r (A)</th>
+              <th class="col-s">I s (A)</th>
+              <th class="col-t">I t (A)</th>
+              <th class="col-r">P r (W)</th>
+              <th class="col-s">P s (W)</th>
+              <th class="col-t">P t (W)</th>
+              <th class="col-r">Q r (VAR)</th>
+              <th class="col-s">Q s (VAR)</th>
+              <th class="col-t">Q t (VAR)</th>
+              <th class="col-r">S r (VA)</th>
+              <th class="col-s">S s (VA)</th>
+              <th class="col-t">S t (VA)</th>
+              <th class="col-r">PF r</th>
+              <th class="col-s">PF s</th>
+              <th class="col-t">PF t</th>
+              <th class="col-r">Sudut r (°)</th>
+              <th class="col-s">Sudut s (°)</th>
+              <th class="col-t">Sudut t (°)</th>
+              <th class="col-r">E r (kWh)</th>
+              <th class="col-s">E s (kWh)</th>
+              <th class="col-t">E t (kWh)</th>
+              <th class="col-p">P total (W)</th>
+              <th>Q total (VAR)</th>
+              <th>S total (VA)</th>
+              <th class="col-e">E total (kWh)</th>
+              <th>E Reaktif Total (kVARh)</th>
+              <th>E Semu Total (kVAh)</th>
+            </tr>
+          </thead>
+          <tbody id="historyTableBody">
+            <!-- Diisi otomatis oleh app.js (100 baris per halaman) -->
+          </tbody>
+        </table>
+      </div>
+
+      <!-- FOOTER TABEL: NOMOR HALAMAN KECIL DI KANAN BAWAH -->
+      <div class="history-footer-bar">
+        <div class="pagination-numbers-wrap" id="historyPaginationNumbers">
+          <!-- Tombol halaman 1, 2, 3, ..., 10, ..., 50, ..., 100, ... dibuat otomatis oleh app.js -->
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- =====================================================================
+       HALAMAN 2: DATA TEKNIK TRAFO, PHBTR, & RIWAYAT PEMELIHARAAN (READ-ONLY)
+       ===================================================================== -->
+  <main class="container hidden" id="pageTechnical">
+    <!-- RINGKASAN IDENTITAS GARDU -->
+    <section class="section-block tech-hero-card">
+      <div class="tech-hero-left">
+        <span class="tech-tag">GARDU DISTRIBUSI &amp; PHBTR</span>
+        <h2 id="techGarduTitle">Gardu LWI012 — Kapasitas 50 kVA</h2>
+        <p id="techGarduLocation">Sistem Monitoring Beban &amp; Parameter Listrik 3-Fasa berbasis PZEM-6L24</p>
+      </div>
+      <div class="tech-hero-badges">
+        <div class="tech-stat-pill">
+          <span>Kode PHBTR</span>
+          <strong id="techCodePill">LWI012</strong>
+        </div>
+        <div class="tech-stat-pill">
+          <span>Kapasitas Trafo</span>
+          <strong id="techCapPill">50 kVA</strong>
+        </div>
+        <div class="tech-stat-pill">
+          <span>Status Operasi</span>
+          <strong class="text-emerald" id="techStatusPill">Beroperasi Normal</strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- GRID DATA TEKNIK TRAFO & DATA TEKNIK PHBTR -->
+    <div class="tech-specs-grid">
+      <!-- DATA TEKNIK TRAFO -->
+      <section class="section-block">
+        <div class="section-title-row">
+          <h2>⚡ Data Teknik Transformator</h2>
+          <span class="unit-tag">Spesifikasi Trafo</span>
+        </div>
+        <div class="spec-list" id="trafoSpecList">
+          <!-- Diisi otomatis dari konfigurasi backend di app.js -->
+        </div>
+      </section>
+
+      <!-- DATA TEKNIK PHBTR -->
+      <section class="section-block">
+        <div class="section-title-row">
+          <h2>🗄️ Data Teknik PHBTR</h2>
+          <span class="unit-tag">Panel Hubung Bagi TR</span>
+        </div>
+        <div class="spec-list" id="phbtrSpecList">
+          <!-- Diisi otomatis dari konfigurasi backend di app.js -->
+        </div>
+      </section>
+    </div>
+
+    <!-- RIWAYAT PEMELIHARAAN (READ-ONLY, DIISI MANUAL DARI BACKEND/DATABASE) -->
+    <section class="section-block">
+      <div class="section-title-row">
+        <h2>🛠️ Riwayat Pemeliharaan Trafo &amp; PHBTR</h2>
+        <span class="unit-tag" id="maintenanceCountBadge">Riwayat Tercatat</span>
+      </div>
+
+      <div class="table-responsive">
+        <table class="data-table maintenance-table">
+          <thead>
+            <tr>
+              <th>No</th>
+              <th>Tanggal</th>
+              <th>Komponen</th>
+              <th>Jenis Pemeliharaan</th>
+              <th>Uraian Pekerjaan &amp; Temuan</th>
+              <th>Petugas / Pelaksana</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="maintenanceTableBody">
+            <!-- Diisi otomatis dari konfigurasi backend / database di app.js -->
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
